@@ -32,7 +32,7 @@ import numpy as np
 class sharedMem:
     def __init__(self, mem_size=20):
         self.lock = Lock()  # Create a lock for thread synchronization
-        
+
         # Define the shape of the shared memory
         shared_memory_shape = np.dtype(
             [
@@ -43,7 +43,7 @@ class sharedMem:
                 ("finishflag", np.bool_),  # Finish flag
             ]
         )
-        
+
         # Create a raw array for shared memory
         array = RawArray("c", mem_size * shared_memory_shape.itemsize)
         shared_memory = np.frombuffer(array, dtype=shared_memory_shape)
@@ -73,9 +73,9 @@ class sharedMem:
             if len(values) > 2:
                 self.shared_memory[self.lastMem]["value3"] = values[2]  # Set the third value
             self.shared_memory[self.lastMem]["finishflag"] = True  # Set the finish flag
-        self.lastMem += 1  # Increment the index of the last memory slot used
-        if self.lastMem == self.mem_size:
-            self.lastMem = 0  # Wrap around if the index exceeds the memory size
+            self.lastMem += 1  # Increment the index of the last memory slot used
+            if self.lastMem == self.mem_size:
+                self.lastMem = 0  # Wrap around if the index exceeds the memory size
 
     # Method to retrieve data from shared memory
     def get(self):
