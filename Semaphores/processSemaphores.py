@@ -32,18 +32,17 @@ if __name__ == "__main__":
 
 from src.templates.workerprocess import WorkerProcess
 from src.data.Semaphores.threads.threadSemaphores import threadSemaphores
+from src.utils.logConfig import get_logger
 
 class processSemaphores(WorkerProcess):
     """This process will receive the location of the other cars and the location and the state of the semaphores.
     Args:
         queueList (dictionary of multiprocessing.queues.Queue): Dictionary of queues where the ID is the type of messages.
-        logging (logging object): Made for debugging.
     """
 
     # ====================================== INIT ==========================================
-    def __init__(self, queueList, logging, ready_event=None, debugging = False):
+    def __init__(self, queueList, ready_event=None, debugging = False):
         self.queuesList = queueList
-        self.logging = logging
         self.debugging = debugging
         super(processSemaphores, self).__init__(self.queuesList, ready_event)
 
@@ -52,7 +51,7 @@ class processSemaphores(WorkerProcess):
     def _init_threads(self):
         """Create the thread and add to the list of threads."""
 
-        CarsSemTh = threadSemaphores(self.queuesList, self.logging, self.debugging)
+        CarsSemTh = threadSemaphores(self.queuesList, self.debugging)
         self.threads.append(CarsSemTh)
 
 
@@ -69,11 +68,11 @@ if __name__ == "__main__":
     }
 
     allProcesses = list()
-    process = processSemaphores(queueList, logging=None)
+    process = processSemaphores(queueList)
     process.start()
 
     x = range(6)
     for n in x:
-        print(queueList["General"].get())  # Print general messages
+        get_logger("Semaphores").info(queueList["General"].get())  # Print general messages
 
     process.stop()

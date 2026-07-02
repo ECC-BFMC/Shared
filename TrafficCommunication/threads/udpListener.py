@@ -28,6 +28,7 @@
 
 from twisted.internet import protocol
 import src.data.TrafficCommunication.useful.keyDealer as keyDealer
+from src.utils.logConfig import get_logger
 
 class udpListener(protocol.DatagramProtocol):
     """This class will handle the connection.
@@ -43,7 +44,7 @@ class udpListener(protocol.DatagramProtocol):
         self.serverfoundCllback = serverfound
 
     def startProtocol(self):
-        print("\033[1;97m[ Traffic Communication ] :\033[0m \033[1;92mINFO\033[0m - Looking for Server...")
+        get_logger("Traffic Communication").info("Looking for Server...")
 
     def datagramReceived(self, datagram, address):
         """In this function we split the receive data and we call the callbackfunction"""
@@ -59,7 +60,7 @@ class udpListener(protocol.DatagramProtocol):
             port = int(msg[1])
             self.serverfoundCllback(address[0], port)
         except Exception as e:
-            print("\033[1;97m[ Traffic Communication ] :\033[0m \033[1;93mWARNING\033[0m - Error in datagramReceived: {e}")
+            get_logger("Traffic Communication").warning("Error in datagramReceived: {e}")
 
     def stopListening(self):
         self.transport.stopListening() # type: ignore

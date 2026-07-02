@@ -35,21 +35,20 @@ from multiprocessing import Pipe
 from src.data.TrafficCommunication.useful.sharedMem import sharedMem
 from src.templates.workerprocess import WorkerProcess
 from src.data.TrafficCommunication.threads.threadTrafficCommunication import threadTrafficCommunication
+from src.utils.logConfig import get_logger
 
 class processTrafficCommunication(WorkerProcess):
     """This process receives the location of the car and sends it to the processGateway.
     
     Args:
         queueList (dictionary of multiprocessing.queues.Queue): Dictionary of queues where the ID is the type of messages.
-        logging (logging object): Used for debugging.
         deviceID (int): The ID of the device.
         frequency (float): The frequency of communication.
     """
 
     # ====================================== INIT ==========================================
-    def __init__(self, queueList, logging, deviceID, ready_event=None, debugging=False, frequency=1):
+    def __init__(self, queueList, deviceID, ready_event=None, debugging=False, frequency=1):
         self.queuesList = queueList
-        self.logging = logging
         self.shared_memory = sharedMem()
         self.filename = "src/data/TrafficCommunication/useful/publickey_server_test.pem"
         self.deviceID = deviceID
@@ -102,6 +101,6 @@ if __name__ == "__main__":
 
     while time.time() - start_time < duration:
         try:
-            print(queueList["General"].get(timeout=1))
+            get_logger("Traffic Communication").info(queueList["General"].get(timeout=1))
         except:pass
     traffic_communication.stop()

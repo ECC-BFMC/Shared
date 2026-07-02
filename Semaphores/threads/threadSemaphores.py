@@ -40,13 +40,12 @@ class threadSemaphores(ThreadWithStop):
     """
 
     # ====================================== INIT ==========================================
-    def __init__(self, queueList, logger, debugging, listenPort=5007):
+    def __init__(self, queueList, debugging, listenPort=5007):
         super(threadSemaphores, self).__init__()
         self.listenPort = listenPort
         self.queueList = queueList
-        self.logger = logger
         self.debugging = debugging
-        self.udp_factory = udpListener(self.queueList, self.logger, self.debugging)
+        self.udp_factory = udpListener(self.queueList, self.debugging)
         self.reactor = reactor
         self.reactor.listenUDP(self.listenPort, self.udp_factory) # type: ignore
 

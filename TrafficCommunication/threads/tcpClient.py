@@ -30,6 +30,7 @@ import json
 from threading import Event
 from src.utils.messages.allMessages import Location
 from src.utils.messages.messageHandlerSender import messageHandlerSender
+from src.utils.logConfig import get_logger
 from twisted.internet import protocol
 
 # The server itself. Creates a new Protocol for each new connection and has the info for all of them.
@@ -46,7 +47,7 @@ class tcpClient(protocol.ClientFactory):
         self.sendLocation = messageHandlerSender(self.queue, Location)
 
     def clientConnectionLost(self, connector, reason):
-        print(f"\033[1;97m[ Traffic Communication ] :\033[0m \033[1;93mWARNING\033[0m - Connection lost with server \033[94m{self.connectiondata}\033[0m")
+        get_logger("Traffic Communication").warning(f"Connection lost with server {self.connectiondata}")
         try:
             self.connectiondata = None
             self.connection = None
@@ -55,7 +56,7 @@ class tcpClient(protocol.ClientFactory):
             pass
 
     def clientConnectionFailed(self, connector, reason):
-        print(f"\033[1;97m[ Traffic Communication ] :\033[0m \033[1;93mWARNING\033[0m - Connection failed, retrying in \033[94m{self.retry_delay}s\033[0m")
+        get_logger("Traffic Communication").warning(f"Connection failed, retrying in {self.retry_delay}s")
         self.event.wait(self.retry_delay)
         connector.connect()
 
@@ -75,7 +76,7 @@ class SingleConnection(protocol.Protocol):
         self.factory.connectiondata = peer.host + ":" + str(peer.port) # type: ignore
         self.factory.connection = self # type: ignore
         self.subscribeToLocaitonData(self.factory.locsysID, self.factory.locsysFrequency) # type: ignore
-        print(f"\033[1;97m[ Traffic Communication ] :\033[0m \033[1;92mINFO\033[0m - Connected to server \033[94m{self.factory.connectiondata}\033[0m") # type: ignore
+        get_logger("Traffic Communication").info(f"Connected to server {self.factory.connectiondata}")  # type: ignore
 
     def dataReceived(self, data):
         dat = data.decode()
@@ -90,7 +91,7 @@ class SingleConnection(protocol.Protocol):
             # fixed infinite loop on hooks (hopefully)
             self.factory.sendLocation.send(da) # type: ignore
         else:
-            print(f"\033[1;97m[ Traffic Communication ] :\033[0m \033[1;92mINFO\033[0m - Message from server \033[94m{self.factory.connectiondata}\033[0m") # type: ignore
+            get_logger("Traffic Communication").info(f"Message from server {self.factory.connectiondata}")  # type: ignore
     def send_data(self, message):
         msg = json.dumps(message)
         self.transport.write(msg.encode()) # type: ignore

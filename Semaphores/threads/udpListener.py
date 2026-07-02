@@ -30,6 +30,7 @@ import json
 from src.utils.messages.allMessages import Semaphores
 from twisted.internet import protocol
 from src.utils.messages.messageHandlerSender import messageHandlerSender
+from src.utils.logConfig import get_logger
 
 class udpListener(protocol.DatagramProtocol):
     """This class is used to receive the information from the servers.
@@ -38,9 +39,9 @@ class udpListener(protocol.DatagramProtocol):
         queue (multiprocessing.queues.Queue): the queue to send the info
     """
 
-    def __init__(self, queuesList, logger, debugging):
+    def __init__(self, queuesList, debugging):
         self.semaphoresSender = messageHandlerSender(queuesList, Semaphores)
-        self.logger = logger
+        self.logger = get_logger("Semaphores")
         self.debugging = debugging
 
     def datagramReceived(self, datagram, addr):
