@@ -32,7 +32,14 @@ if __name__ == "__main__":
 
 from src.templates.workerprocess import WorkerProcess
 from src.data.Semaphores.threads.threadSemaphores import threadSemaphores
-from src.utils.logConfig import get_logger
+try:
+    from src.utils.logConfig import get_logger
+except ModuleNotFoundError:
+    class _PrintLogger:
+        def __getattr__(self, _):
+            return print
+    def get_logger(name):
+        return _PrintLogger()
 
 class processSemaphores(WorkerProcess):
     """This process will receive the location of the other cars and the location and the state of the semaphores.

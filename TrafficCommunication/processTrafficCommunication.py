@@ -35,7 +35,14 @@ from multiprocessing import Pipe
 from src.data.TrafficCommunication.useful.sharedMem import sharedMem
 from src.templates.workerprocess import WorkerProcess
 from src.data.TrafficCommunication.threads.threadTrafficCommunication import threadTrafficCommunication
-from src.utils.logConfig import get_logger
+try:
+    from src.utils.logConfig import get_logger
+except ModuleNotFoundError:
+    class _PrintLogger:
+        def __getattr__(self, _):
+            return print
+    def get_logger(name):
+        return _PrintLogger()
 
 class processTrafficCommunication(WorkerProcess):
     """This process receives the location of the car and sends it to the processGateway.

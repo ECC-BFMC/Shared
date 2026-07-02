@@ -28,7 +28,14 @@
 
 from twisted.internet import protocol
 import src.data.TrafficCommunication.useful.keyDealer as keyDealer
-from src.utils.logConfig import get_logger
+try:
+    from src.utils.logConfig import get_logger
+except ModuleNotFoundError:
+    class _PrintLogger:
+        def __getattr__(self, _):
+            return print
+    def get_logger(name):
+        return _PrintLogger()
 
 class udpListener(protocol.DatagramProtocol):
     """This class will handle the connection.

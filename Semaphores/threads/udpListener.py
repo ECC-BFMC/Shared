@@ -30,7 +30,14 @@ import json
 from src.utils.messages.allMessages import Semaphores
 from twisted.internet import protocol
 from src.utils.messages.messageHandlerSender import messageHandlerSender
-from src.utils.logConfig import get_logger
+try:
+    from src.utils.logConfig import get_logger
+except ModuleNotFoundError:
+    class _PrintLogger:
+        def __getattr__(self, _):
+            return print
+    def get_logger(name):
+        return _PrintLogger()
 
 class udpListener(protocol.DatagramProtocol):
     """This class is used to receive the information from the servers.

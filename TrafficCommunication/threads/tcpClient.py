@@ -30,7 +30,14 @@ import json
 from threading import Event
 from src.utils.messages.allMessages import Location
 from src.utils.messages.messageHandlerSender import messageHandlerSender
-from src.utils.logConfig import get_logger
+try:
+    from src.utils.logConfig import get_logger
+except ModuleNotFoundError:
+    class _PrintLogger:
+        def __getattr__(self, _):
+            return print
+    def get_logger(name):
+        return _PrintLogger()
 from twisted.internet import protocol
 
 # The server itself. Creates a new Protocol for each new connection and has the info for all of them.
