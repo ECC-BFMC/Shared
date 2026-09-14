@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import time
+from collections import deque
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from src.utils.messages.allMessages import Location
@@ -113,6 +114,7 @@ class WebSocketTrafficClient:
         queues,
         websocket_url=None,
         device_token=None,
+        api_key=None,
     ):
         interval_seconds = float(interval_seconds)
         if not 0.05 <= interval_seconds <= 5.0:
@@ -127,7 +129,7 @@ class WebSocketTrafficClient:
             websocket_url or os.getenv("TRAFFIC_WS_URL", DEFAULT_WEBSOCKET_URL),
             device_id,
         )
-        self.device_token = resolve_device_token(device_id, device_token)
+        self.device_token = api_key or resolve_device_token(device_id, device_token)
         self.logger = get_logger("Traffic Communication")
         self.send_location = messageHandlerSender(queues, Location)
         self.websocket = None
@@ -137,6 +139,21 @@ class WebSocketTrafficClient:
         self.clock_round_trip_ms = None
         self.clock_synchronized = False
         self._clock_sync_event = asyncio.Event()
+        self._last_location_arrival = None
+        self.receive_intervals_ms = deque(maxlen=100)
+        self.receive_latencies_ms = deque(maxlen=100)
+
+    @staticmethod
+    def _average(samples) -> float | None:
+        return sum(samples) / len(samples) if samples else None
+
+    @property
+    def average_receive_interval_ms(self) -> float | None:
+        return self._average(self.receive_intervals_ms)
+
+    @property
+    def average_receive_latency_ms(self) -> float | None:
+        return self._average(self.receive_latencies_ms)
 
     async def run_forever(self) -> None:
         headers = {"Authorization": f"Bearer {self.device_token}"}
@@ -289,6 +306,20 @@ class WebSocketTrafficClient:
         location = normalize_location_message(message, self.device_id)
         if location.get("x") is None or location.get("y") is None:
             return
+        arrival = time.monotonic()
+        if self._last_location_arrival is not None:
+            self.receive_intervals_ms.append(
+                (arrival - self._last_location_arrival) * 1000.0
+            )
+        self._last_location_arrival = arrival
+        try:
+            if self.clock_synchronized and message.get("server_ts") is not None:
+                corrected_receive_ms = time.time() * 1000.0 + self.clock_offset_ms
+                self.receive_latencies_ms.append(
+                    max(0.0, corrected_receive_ms - float(message["server_ts"]))
+                )
+        except (TypeError, ValueError):
+            pass
         self.send_location.send(location)
 
     @staticmethod

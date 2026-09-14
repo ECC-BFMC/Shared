@@ -59,13 +59,14 @@ class processTrafficCommunication(WorkerProcess):
 
     # ====================================== INIT ==========================================
     def __init__(self, queueList, deviceID, ready_event=None, debugging=False,
-                 frequency=0.05, connectionType="socket"):
+                 frequency=0.05, connectionType="socket", api_key=None):
         self.queuesList = queueList
         self.shared_memory = sharedMem()
         self.filename = "src/data/TrafficCommunication/useful/publickey_server_test.pem"
         self.deviceID = deviceID
         self.frequency = frequency
         self.websocket_url = "wss://locsys.boschfuturemobility.com"
+        self.api_key = api_key
         if connectionType not in {"socket", "udp/tcp"}:
             raise ValueError("connectionType must be 'socket' or 'udp/tcp'")
         self.connectionType = connectionType
@@ -78,9 +79,66 @@ class processTrafficCommunication(WorkerProcess):
 
         TrafficComTh = threadTrafficCommunication(
             self.shared_memory, self.queuesList, self.deviceID, self.frequency,
-            self.filename, self.websocket_url, self.connectionType
+            self.filename, self.websocket_url, self.connectionType,
+            api_key=self.api_key,
         )
         self.threads.append(TrafficComTh)
+
+
+def format_client_dashboard(
+    *,
+    device_id,
+    connected,
+    cycles,
+    sent,
+    received_count,
+    received,
+    average_interval_ms,
+    average_latency_ms,
+):
+    interval = "waiting"
+    if average_interval_ms is not None:
+        rate = 1000.0 / average_interval_ms if average_interval_ms > 0 else 0.0
+        interval = f"{average_interval_ms:.0f} ms ({rate:.1f} Hz)"
+    latency = (
+        f"{average_latency_ms:.0f} ms"
+        if average_latency_ms is not None
+        else "waiting"
+    )
+    received = received or {}
+    sent_lines = [
+        f"Position   x={sent['x']:.2f}  y={sent['y']:.2f}",
+        f"Rotation   {sent['rotation']:.1f} deg",
+        f"Speed      {sent['speed']:.2f}",
+        f"Obstacle   {sent['obstacle'] or '-'}",
+    ]
+    received_lines = [
+        f"Device     {received.get('id', '-')}",
+        f"Position   x={received.get('x', '-')}  y={received.get('y', '-')}",
+        f"Timestamp  {received.get('ts', '-')}",
+        f"Updates    {received_count}",
+    ]
+    column_width = 44
+    rows = [
+        "LocSys Traffic Client",
+        "=" * 88,
+        f"Device {device_id}  |  {'ONLINE' if connected else 'OFFLINE'}  |  cycles {cycles}",
+        "",
+        "SENT DATA".ljust(column_width) + "RECEIVED LOCATION",
+        "-" * 40 + "    " + "-" * 40,
+    ]
+    rows.extend(
+        left.ljust(column_width) + right
+        for left, right in zip(sent_lines, received_lines)
+    )
+    rows.extend([
+        "",
+        f"Average receive interval: {interval}",
+        f"Average receive latency:  {latency}",
+        "",
+        "Ctrl+C to stop",
+    ])
+    return "\n".join(rows)
 
 
 # =================================== EXAMPLE =========================================
@@ -88,7 +146,7 @@ class processTrafficCommunication(WorkerProcess):
 #                  in terminal:    python3 processTrafficCommunication.py
 #                  on Windows:     python processTrafficCommunication.py
 
-if __name__ == "__main__":
+def main():
     import argparse
     import math
     import random
@@ -125,6 +183,7 @@ if __name__ == "__main__":
     filename = "useful/publickey_server_test.pem"
     connectionType = "socket"  # Use "udp/tcp" for the old mode.
     websocket_url = "wss://locsys.boschfuturemobility.com"
+    api_key = "PASTE_YOUR_LOCSYS_API_KEY_HERE"
     if connectionType == "udp/tcp":
         filename = str(
             Path(__file__).resolve().parent / "useful" / "publickey_server_test.pem"
@@ -133,21 +192,8 @@ if __name__ == "__main__":
     frequency = args.interval
     traffic_communication = threadTrafficCommunication(
         shared_memory, queueList, deviceID, frequency, filename, websocket_url,
-        connectionType
+        connectionType, api_key=api_key
     )
-
-    print("LocSys brain TrafficCommunication local runner")
-    print(f"  device:   {deviceID}")
-    print(f"  mode:      {connectionType}")
-    if connectionType == "socket":
-        print(f"  endpoint: {traffic_communication.websocket_client.uri}")
-    else:
-        print("  endpoint: UDP discovery on port 9000, followed by TCP")
-    print(
-        f"  interval: {frequency:g}s "
-        f"({1.0 / frequency:g} Hz telemetry cycles)"
-    )
-    print("  stop:     Ctrl+C")
 
     traffic_communication.start()
     start_time = time.monotonic()
@@ -162,6 +208,7 @@ if __name__ == "__main__":
     y = 15.0
     rotation = 0.0
     speed = 8.1
+    latest_obstacle = None
 
     try:
         while duration == 0 or time.monotonic() - start_time < duration:
@@ -189,6 +236,7 @@ if __name__ == "__main__":
                 shared_memory.insert("deviceRot", [rotation])
                 shared_memory.insert("deviceSpeed", [speed])
                 if cycle % max(1, math.ceil(5.0 / frequency)) == 0:
+                    latest_obstacle = f"id=1  x={x + 0.5:.2f}  y={y + 0.5:.2f}"
                     shared_memory.insert("historyData", [1, x + 0.5, y + 0.5])
                 next_cycle += frequency
 
@@ -205,18 +253,32 @@ if __name__ == "__main__":
                     connected = traffic_communication.websocket_client.websocket is not None
                 else:
                     connected = traffic_communication.tcp_factory.connection is not None
-                location_text = "waiting"
-                if latest_location is not None:
-                    location_text = (
-                        f"id={latest_location.get('id')} "
-                        f"x={latest_location.get('x')} "
-                        f"y={latest_location.get('y')}"
+                average_interval = None
+                average_latency = None
+                if traffic_communication.websocket_client is not None:
+                    average_interval = (
+                        traffic_communication.websocket_client.average_receive_interval_ms
                     )
-                print(
-                    f"[traffic] connected={'yes' if connected else 'no'} "
-                    f"cycles={cycle} "
-                    f"locations={received_locations} latest=[{location_text}]"
+                    average_latency = (
+                        traffic_communication.websocket_client.average_receive_latency_ms
+                    )
+                dashboard = format_client_dashboard(
+                    device_id=deviceID,
+                    connected=connected,
+                    cycles=cycle,
+                    sent={
+                        "x": x,
+                        "y": y,
+                        "rotation": rotation,
+                        "speed": speed,
+                        "obstacle": latest_obstacle,
+                    },
+                    received_count=received_locations,
+                    received=latest_location,
+                    average_interval_ms=average_interval,
+                    average_latency_ms=average_latency,
                 )
+                print("\x1b[2J\x1b[H" + dashboard, end="", flush=True)
                 next_report += 1.0
 
             time.sleep(min(0.01, max(0.0, next_cycle - time.monotonic())))
@@ -237,3 +299,7 @@ if __name__ == "__main__":
         print("[traffic] error: no WebSocket connection was established")
         failed = True
     raise SystemExit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()

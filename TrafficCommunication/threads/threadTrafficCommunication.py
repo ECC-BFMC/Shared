@@ -72,6 +72,7 @@ class threadTrafficCommunication(ThreadWithStop):
         decrypt_key=None,
         websocket_url=None,
         connectionType=COMMUNICATION_SOCKET,
+        api_key=None,
     ):
         super(threadTrafficCommunication, self).__init__()
         self.queue = queueslist
@@ -91,6 +92,7 @@ class threadTrafficCommunication(ThreadWithStop):
                 shared_memory=shrd_mem,
                 queues=self.queue,
                 websocket_url=websocket_url,
+                api_key=api_key,
             )
         else:
             self._init_udp_tcp(shrd_mem, deviceID, frequency, decrypt_key)
