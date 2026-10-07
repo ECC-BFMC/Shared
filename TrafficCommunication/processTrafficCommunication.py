@@ -28,7 +28,10 @@
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, "../../..")
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(project_root))
 
 # Import necessary modules
 from multiprocessing import Pipe
@@ -51,15 +54,22 @@ class processTrafficCommunication(WorkerProcess):
         queueList (dictionary of multiprocessing.queues.Queue): Dictionary of queues where the ID is the type of messages.
         deviceID (int): The ID of the device.
         frequency (float): The frequency of communication.
+        connectionType (String): "socket" or "udp/tcp".
     """
 
     # ====================================== INIT ==========================================
-    def __init__(self, queueList, deviceID, ready_event=None, debugging=False, frequency=1):
+    def __init__(self, queueList, deviceID, ready_event=None, debugging=False,
+                 frequency=0.05, connectionType="socket", api_key=None):
         self.queuesList = queueList
         self.shared_memory = sharedMem()
         self.filename = "src/data/TrafficCommunication/useful/publickey_server_test.pem"
         self.deviceID = deviceID
         self.frequency = frequency
+        self.websocket_url = "wss://locsys.boschfuturemobility.com"
+        self.api_key = api_key
+        if connectionType not in {"socket", "udp/tcp"}:
+            raise ValueError("connectionType must be 'socket' or 'udp/tcp'")
+        self.connectionType = connectionType
         self.debugging = debugging
         super(processTrafficCommunication, self).__init__(self.queuesList, ready_event)
 
@@ -68,18 +78,98 @@ class processTrafficCommunication(WorkerProcess):
         """Create the Traffic Communication thread and add it to the list of threads."""
 
         TrafficComTh = threadTrafficCommunication(
-            self.shared_memory, self.queuesList, self.deviceID, self.frequency, self.filename
+            self.shared_memory, self.queuesList, self.deviceID, self.frequency,
+            self.filename, self.websocket_url, self.connectionType,
+            api_key=self.api_key,
         )
         self.threads.append(TrafficComTh)
+
+
+def format_client_dashboard(
+    *,
+    device_id,
+    connected,
+    cycles,
+    sent,
+    received_count,
+    received,
+    average_interval_ms,
+    average_latency_ms,
+):
+    interval = "waiting"
+    if average_interval_ms is not None:
+        rate = 1000.0 / average_interval_ms if average_interval_ms > 0 else 0.0
+        interval = f"{average_interval_ms:.0f} ms ({rate:.1f} Hz)"
+    latency = (
+        f"{average_latency_ms:.0f} ms"
+        if average_latency_ms is not None
+        else "waiting"
+    )
+    received = received or {}
+    sent_lines = [
+        f"Position   x={sent['x']:.2f}  y={sent['y']:.2f}",
+        f"Rotation   {sent['rotation']:.1f} deg",
+        f"Speed      {sent['speed']:.2f}",
+        f"Obstacle   {sent['obstacle'] or '-'}",
+    ]
+    received_lines = [
+        f"Device     {received.get('id', '-')}",
+        f"Position   x={received.get('x', '-')}  y={received.get('y', '-')}",
+        f"Timestamp  {received.get('ts', '-')}",
+        f"Updates    {received_count}",
+    ]
+    column_width = 44
+    rows = [
+        "LocSys Traffic Client",
+        "=" * 88,
+        f"Device {device_id}  |  {'ONLINE' if connected else 'OFFLINE'}  |  cycles {cycles}",
+        "",
+        "SENT DATA".ljust(column_width) + "RECEIVED LOCATION",
+        "-" * 40 + "    " + "-" * 40,
+    ]
+    rows.extend(
+        left.ljust(column_width) + right
+        for left, right in zip(sent_lines, received_lines)
+    )
+    rows.extend([
+        "",
+        f"Average receive interval: {interval}",
+        f"Average receive latency:  {latency}",
+        "",
+        "Ctrl+C to stop",
+    ])
+    return "\n".join(rows)
 
 
 # =================================== EXAMPLE =========================================
 #             ++    THIS WILL RUN ONLY IF YOU RUN THE CODE FROM HERE  ++
 #                  in terminal:    python3 processTrafficCommunication.py
+#                  on Windows:     python processTrafficCommunication.py
 
-if __name__ == "__main__":
-    from multiprocessing import Queue
+def main():
+    import argparse
+    import math
+    import random
     import time
+    from multiprocessing import Queue
+    from queue import Empty
+
+    parser = argparse.ArgumentParser(
+        description="Run the brain TrafficCommunication client locally"
+    )
+    parser.add_argument("--device", type=int, default=99)
+    parser.add_argument("--interval", type=float, default=0.05)
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=0.0,
+        help="Seconds to run; 0 runs until Ctrl+C",
+    )
+    args = parser.parse_args()
+    if not 0.05 <= args.interval <= 5.0:
+        parser.error("--interval must be between 0.05 and 5 seconds")
+    if args.duration < 0:
+        parser.error("--duration cannot be negative")
 
     shared_memory = sharedMem()
     locsysReceivePipe, locsysSendPipe = Pipe(duplex=False)
@@ -91,23 +181,125 @@ if __name__ == "__main__":
     }
     # filename = "useful/publickey_server.pem"
     filename = "useful/publickey_server_test.pem"
-    deviceID = 3
-    frequency = 0.4
+    connectionType = "socket"  # Use "udp/tcp" for the old mode.
+    websocket_url = "wss://locsys.boschfuturemobility.com"
+    api_key = "PASTE_YOUR_LOCSYS_API_KEY_HERE"
+    if connectionType == "udp/tcp":
+        filename = str(
+            Path(__file__).resolve().parent / "useful" / "publickey_server_test.pem"
+        )
+    deviceID = args.device
+    frequency = args.interval
     traffic_communication = threadTrafficCommunication(
-        shared_memory, queueList, deviceID, frequency, filename
+        shared_memory, queueList, deviceID, frequency, filename, websocket_url,
+        connectionType, api_key=api_key
     )
-    traffic_communication.start()    
 
-    start_time = time.time()
-    duration = 10  # specify the duration in seconds
-    
-    shared_memory.insert("devicePos", [1.2, 2.3]) # send a position to the server
-    shared_memory.insert("deviceRot", [3.4]) # send a rotation to the server
-    shared_memory.insert("deviceSpeed", [4.5]) # send a speed to the server
-    shared_memory.insert("historyData", [5.6, 6.7, 8]) # send a history data point to the server
+    traffic_communication.start()
+    start_time = time.monotonic()
+    next_cycle = start_time
+    next_report = start_time + 1.0
+    duration = args.duration
+    cycle = 0
+    received_locations = 0
+    latest_location = None
+    failed = False
+    x = 9.0
+    y = 15.0
+    rotation = 0.0
+    speed = 8.1
+    latest_obstacle = None
 
-    while time.time() - start_time < duration:
-        try:
-            get_logger("Traffic Communication").info(queueList["General"].get(timeout=1))
-        except:pass
-    traffic_communication.stop()
+    try:
+        while duration == 0 or time.monotonic() - start_time < duration:
+            now = time.monotonic()
+            if not traffic_communication.is_alive():
+                transport_error = "unknown error"
+                if traffic_communication.websocket_client is not None:
+                    transport_error = (
+                        traffic_communication.websocket_client.last_error
+                        or transport_error
+                    )
+                print(
+                    "[traffic] communication thread stopped unexpectedly: "
+                    f"{transport_error}"
+                )
+                failed = True
+                break
+            if now >= next_cycle:
+                cycle += 1
+                x += random.uniform(-0.05, 0.05)
+                y += random.uniform(-0.05, 0.05)
+                rotation = (rotation + 5.0) % 360.0
+                speed = max(0.0, speed + random.uniform(-0.2, 0.2))
+                shared_memory.insert("devicePos", [x, y])
+                shared_memory.insert("deviceRot", [rotation])
+                shared_memory.insert("deviceSpeed", [speed])
+                if cycle % max(1, math.ceil(5.0 / frequency)) == 0:
+                    latest_obstacle = f"id=1  x={x + 0.5:.2f}  y={y + 0.5:.2f}"
+                    shared_memory.insert("historyData", [1, x + 0.5, y + 0.5])
+                next_cycle += frequency
+
+            while True:
+                try:
+                    envelope = queueList["General"].get_nowait()
+                except Empty:
+                    break
+                latest_location = envelope.get("msgValue", envelope)
+                received_locations += 1
+
+            if now >= next_report:
+                if traffic_communication.websocket_client is not None:
+                    connected = traffic_communication.websocket_client.websocket is not None
+                else:
+                    connected = traffic_communication.tcp_factory.connection is not None
+                average_interval = None
+                average_latency = None
+                if traffic_communication.websocket_client is not None:
+                    average_interval = (
+                        traffic_communication.websocket_client.average_receive_interval_ms
+                    )
+                    average_latency = (
+                        traffic_communication.websocket_client.average_receive_latency_ms
+                    )
+                dashboard = format_client_dashboard(
+                    device_id=deviceID,
+                    connected=connected,
+                    cycles=cycle,
+                    sent={
+                        "x": x,
+                        "y": y,
+                        "rotation": rotation,
+                        "speed": speed,
+                        "obstacle": latest_obstacle,
+                    },
+                    received_count=received_locations,
+                    received=latest_location,
+                    average_interval_ms=average_interval,
+                    average_latency_ms=average_latency,
+                )
+                print("\x1b[2J\x1b[H" + dashboard, end="", flush=True)
+                next_report += 1.0
+
+            time.sleep(min(0.01, max(0.0, next_cycle - time.monotonic())))
+    except KeyboardInterrupt:
+        print("\n[traffic] stopping")
+    finally:
+        traffic_communication.stop()
+        traffic_communication.join(timeout=5)
+        if traffic_communication.is_alive():
+            print("[traffic] warning: communication thread did not stop within 5 seconds")
+        else:
+            print("[traffic] stopped")
+    if (
+        duration > 0
+        and traffic_communication.websocket_client is not None
+        and traffic_communication.websocket_client.connection_count == 0
+    ):
+        print("[traffic] error: no WebSocket connection was established")
+        failed = True
+    raise SystemExit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()
