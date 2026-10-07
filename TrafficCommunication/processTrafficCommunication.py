@@ -54,22 +54,17 @@ class processTrafficCommunication(WorkerProcess):
         queueList (dictionary of multiprocessing.queues.Queue): Dictionary of queues where the ID is the type of messages.
         deviceID (int): The ID of the device.
         frequency (float): The frequency of communication.
-        connectionType (String): "socket" or "udp/tcp".
     """
 
     # ====================================== INIT ==========================================
     def __init__(self, queueList, deviceID, ready_event=None, debugging=False,
-                 frequency=0.05, connectionType="socket", api_key=None):
+                 frequency=0.05, api_key=None):
         self.queuesList = queueList
         self.shared_memory = sharedMem()
-        self.filename = "src/data/TrafficCommunication/useful/publickey_server_test.pem"
         self.deviceID = deviceID
         self.frequency = frequency
         self.websocket_url = "wss://locsys.boschfuturemobility.com"
         self.api_key = api_key
-        if connectionType not in {"socket", "udp/tcp"}:
-            raise ValueError("connectionType must be 'socket' or 'udp/tcp'")
-        self.connectionType = connectionType
         self.debugging = debugging
         super(processTrafficCommunication, self).__init__(self.queuesList, ready_event)
 
@@ -78,8 +73,11 @@ class processTrafficCommunication(WorkerProcess):
         """Create the Traffic Communication thread and add it to the list of threads."""
 
         TrafficComTh = threadTrafficCommunication(
-            self.shared_memory, self.queuesList, self.deviceID, self.frequency,
-            self.filename, self.websocket_url, self.connectionType,
+            self.shared_memory,
+            self.queuesList,
+            self.deviceID,
+            frequency=self.frequency,
+            websocket_url=self.websocket_url,
             api_key=self.api_key,
         )
         self.threads.append(TrafficComTh)
@@ -179,20 +177,17 @@ def main():
         "General": Queue(),
         "Config": Queue(),
     }
-    # filename = "useful/publickey_server.pem"
-    filename = "useful/publickey_server_test.pem"
-    connectionType = "socket"  # Use "udp/tcp" for the old mode.
     websocket_url = "wss://locsys.boschfuturemobility.com"
     api_key = "PASTE_YOUR_LOCSYS_API_KEY_HERE"
-    if connectionType == "udp/tcp":
-        filename = str(
-            Path(__file__).resolve().parent / "useful" / "publickey_server_test.pem"
-        )
     deviceID = args.device
     frequency = args.interval
     traffic_communication = threadTrafficCommunication(
-        shared_memory, queueList, deviceID, frequency, filename, websocket_url,
-        connectionType, api_key=api_key
+        shared_memory,
+        queueList,
+        deviceID,
+        frequency=frequency,
+        websocket_url=websocket_url,
+        api_key=api_key,
     )
 
     traffic_communication.start()
@@ -249,19 +244,13 @@ def main():
                 received_locations += 1
 
             if now >= next_report:
-                if traffic_communication.websocket_client is not None:
-                    connected = traffic_communication.websocket_client.websocket is not None
-                else:
-                    connected = traffic_communication.tcp_factory.connection is not None
-                average_interval = None
-                average_latency = None
-                if traffic_communication.websocket_client is not None:
-                    average_interval = (
-                        traffic_communication.websocket_client.average_receive_interval_ms
-                    )
-                    average_latency = (
-                        traffic_communication.websocket_client.average_receive_latency_ms
-                    )
+                connected = traffic_communication.websocket_client.websocket is not None
+                average_interval = (
+                    traffic_communication.websocket_client.average_receive_interval_ms
+                )
+                average_latency = (
+                    traffic_communication.websocket_client.average_receive_latency_ms
+                )
                 dashboard = format_client_dashboard(
                     device_id=deviceID,
                     connected=connected,
@@ -293,7 +282,6 @@ def main():
             print("[traffic] stopped")
     if (
         duration > 0
-        and traffic_communication.websocket_client is not None
         and traffic_communication.websocket_client.connection_count == 0
     ):
         print("[traffic] error: no WebSocket connection was established")

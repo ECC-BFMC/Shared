@@ -4,7 +4,7 @@ Push modifications to submodule
 cd src/data
 git status
 git add .
-git commit -m "Fix/update in Semaphores"
+git commit -m "Update data module"
 git push origin data
 cd ../..
 git add src/data
